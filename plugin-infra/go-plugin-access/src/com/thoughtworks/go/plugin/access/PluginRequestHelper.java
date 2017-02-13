@@ -4,12 +4,16 @@ import com.thoughtworks.go.plugin.api.request.DefaultGoPluginApiRequest;
 import com.thoughtworks.go.plugin.api.response.DefaultGoApiResponse;
 import com.thoughtworks.go.plugin.api.response.GoPluginApiResponse;
 import com.thoughtworks.go.plugin.infra.PluginManager;
+import org.apache.log4j.Logger;
 
 import java.util.List;
 
 import static java.lang.String.format;
 
 public class PluginRequestHelper {
+
+    private static final Logger LOG = Logger.getLogger(PluginRequestHelper.class);
+
     protected PluginManager pluginManager;
     private List<String> goSupportedVersions;
     private String extensionName;
@@ -21,8 +25,12 @@ public class PluginRequestHelper {
     }
 
     public <T> T submitRequest(String pluginId, String requestName, PluginInteractionCallback<T> pluginInteractionCallback) {
+        waitForPluginToBeLoaded(pluginId, 10);
+
         if (!pluginManager.isPluginOfType(extensionName, pluginId)) {
-            throw new PluginNotFoundException(format("Did not find '%s' plugin with id '%s'. Looks like plugin is missing", extensionName, pluginId));
+            String msg = format("Did not find '%s' plugin with id '%s'. Looks like plugin is missing", extensionName, pluginId);
+            LOG.error(msg);
+            throw new RuntimeException(msg);
         }
         try {
             String resolvedExtensionVersion = pluginManager.resolveExtensionVersion(pluginId, goSupportedVersions);
@@ -40,5 +48,28 @@ public class PluginRequestHelper {
         } catch (Exception e) {
             throw new RuntimeException(format("Interaction with plugin with id '%s' implementing '%s' extension failed while requesting for '%s'. Reason: [%s]", pluginId, extensionName, requestName, e.getMessage()), e);
         }
+    }
+
+    private void waitForPluginToBeLoaded(String pluginId, final int maxRetries) {
+        int retries = 0;
+        do {
+            try {
+                LOG.debug("Checking that required plugin is available...");
+                if (!pluginManager.isPluginOfType(extensionName, pluginId)) {
+                    final int secondsToWait = 5;
+
+                    retries++;
+
+                    LOG.debug("Could not run just yet because plugins have not been fully loaded");
+                    LOG.debug(format("Retrying in %d seconds. Retry count: %d", secondsToWait, retries));
+
+                    Thread.sleep(secondsToWait * 1000);
+                } else {
+                    break;
+                }
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        } while(retries < maxRetries);
     }
 }
